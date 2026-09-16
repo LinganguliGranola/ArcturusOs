@@ -5,6 +5,7 @@
 #include "../drivers/keyboard.h"
 #include "../terminal/terminal.h"
 #include "../terminal/commands.h"
+#include "../filesystem/filesystem.h"
 
 void init_serial(void) {
     outb(0x3F8 + 1, 0x00);    // Disable all interrupts
@@ -37,6 +38,8 @@ void kernel_main(void) {
     init_serial();
     keyboard_init();
     commands_initialize();
+    filesystem_initialize();
+    serial_write_string("Filesystem initialization complete.\r\n");
 
 	/* Print an inspiring message */
 	terminal_setcolor(VGA_COLOR_LIGHT_CYAN | (VGA_COLOR_BLACK << 4));
@@ -51,6 +54,10 @@ void kernel_main(void) {
 	terminal_setcolor(VGA_COLOR_LIGHT_GREEN | (VGA_COLOR_BLACK << 4));
 	terminal_writestring("Everything is up and running!\n");
     terminal_writestring("Hello from ArcturusOs! Serial output works.\n\n");
+
+    terminal_writestring("Filesystem ready. Type 'help' for commands.\n");
+    filesystem_print_mounts();
+    terminal_putchar('\n');
 
     /* Prompt */
     terminal_setcolor(VGA_COLOR_LIGHT_GREY | (VGA_COLOR_BLACK << 4));

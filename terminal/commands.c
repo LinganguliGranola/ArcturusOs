@@ -1,6 +1,7 @@
 #include "commands.h"
 #include "terminal.h"
 #include "../drivers/io.h"
+#include "../filesystem/filesystem.h"
 
 #include <stdint.h>
 
@@ -124,6 +125,112 @@ static void write_unsigned(uint32_t value) {
         terminal_putchar(digits[--count]);
 }
 
+static int text_equal(const char *left, const char *right) {
+    while (*left != '\0' && *left == *right) {
+        left++;
+        right++;
+    }
+    return *left == *right;
+}
+
+static int starts_with(const char *text, const char *prefix) {
+    while (*prefix != '\0') {
+        if (*text++ != *prefix++)
+            return 0;
+    }
+    return 1;
+}
+
+static const char *skip_spaces(const char *text) {
+    while (*text == ' ')
+        text++;
+    return text;
+}
+
+static int split_argument(const char *text, char *argument, uint8_t capacity,
+                          const char **remainder) {
+    uint8_t length = 0;
+
+    text = skip_spaces(text);
+    if (*text == '\0')
+        return 0;
+    while (*text != '\0' && *text != ' ') {
+        if (length + 1 >= capacity)
+            return 0;
+        argument[length++] = *text++;
+    }
+    argument[length] = '\0';
+    *remainder = skip_spaces(text);
+    return 1;
+}
+
+static void command_help(void) {
+    terminal_writestring("Filesystem commands:\n");
+    terminal_writestring("  mounts                 list disk mount paths\n");
+    terminal_writestring("  ls <path>              list a mount or directory\n");
+    terminal_writestring("  mkdir <path>           create a directory\n");
+    terminal_writestring("  touch <path>           create an empty file\n");
+    terminal_writestring("  write <path> <text>    replace file contents\n");
+    terminal_writestring("  append <path> <text>   append to a file\n");
+    terminal_writestring("  cat <path>             show a file\n");
+    terminal_writestring("  rm <path>              remove an empty directory or file\n");
+}
+
+static bool execute_filesystem_command(const char *command) {
+    char path[56];
+    const char *remainder;
+
+    if (text_equal(command, "mounts")) {
+        filesystem_print_mounts();
+        return true;
+    }
+    if (text_equal(command, "help")) {
+        command_help();
+        return true;
+    }
+    if (starts_with(command, "ls ")) {
+        if (!split_argument(command + 3, path, sizeof(path), &remainder) ||
+            *remainder != '\0' || !filesystem_list(path))
+            terminal_writestring("Path not found.\n");
+        return true;
+    }
+    if (starts_with(command, "mkdir ")) {
+        if (!split_argument(command + 6, path, sizeof(path), &remainder) ||
+            *remainder != '\0' || !filesystem_make_directory(path))
+            terminal_writestring("Could not create directory.\n");
+        return true;
+    }
+    if (starts_with(command, "touch ")) {
+        if (!split_argument(command + 6, path, sizeof(path), &remainder) ||
+            *remainder != '\0' || !filesystem_create_file(path))
+            terminal_writestring("Could not create file.\n");
+        return true;
+    }
+    if (starts_with(command, "cat ")) {
+        if (!split_argument(command + 4, path, sizeof(path), &remainder) ||
+            *remainder != '\0' || !filesystem_read_file(path))
+            terminal_writestring("File not found.\n");
+        return true;
+    }
+    if (starts_with(command, "rm ")) {
+        if (!split_argument(command + 3, path, sizeof(path), &remainder) ||
+            *remainder != '\0' || !filesystem_remove(path))
+            terminal_writestring("Could not remove path.\n");
+        return true;
+    }
+    if (starts_with(command, "write ") || starts_with(command, "append ")) {
+        uint8_t append = command[0] == 'a';
+        const char *arguments = command + (append ? 7 : 6);
+
+        if (!split_argument(arguments, path, sizeof(path), &remainder) ||
+            *remainder == '\0' ||
+            !filesystem_write_file(path, remainder, append != 0))
+            terminal_writestring("Could not write file.\n");
+        return true;
+    }
+    return false;
+}
+
 void commands_initialize(void) {
     struct rtc_time time;
 
@@ -181,5 +288,5 @@ bool commands_execute(const char *command) {
         return true;
     }
 
-    return false;
+    return execute_filesystem_command(command);
 }

@@ -9,9 +9,13 @@ ArcturusOS is a small educational 32-bit x86 operating system kernel written in 
 - Serial output through COM1
 - Polling PS/2 keyboard input
 - Editable terminal input with left and right arrow navigation
+- Persistent ATA PIO filesystem backed by `disk.img` in QEMU
+- Automatic disk mounts: `run/home`, `run/media`, `run/var`, then `run/var_4`
 - Built-in commands:
   - `time` — displays the current CMOS RTC time as `HH:MM:SS`
   - `uptime` — displays elapsed time since the kernel booted
+  - `mounts`, `ls`, `mkdir`, `touch`, `write`, `append`, `cat`, and `rm` —
+    basic persistent filesystem operations (`help` prints usage)
 
 ## Build
 
@@ -30,6 +34,13 @@ Run the kernel directly in QEMU:
 ```sh
 make run
 ```
+
+`make run` creates a 16 MiB `disk.img` on first use and attaches it as the
+primary IDE disk. The kernel formats it as its small native filesystem once;
+subsequent launches retain files. Attach further IDE disks in QEMU to mount
+them in discovery order as `run/media`, `run/var`, and `run/var_4`. A detected
+USB flash drive is represented by the removable mount `run/exdrive`; its
+controller driver is not present in this polling IDE implementation yet.
 
 To build a bootable ISO instead, install `grub-mkrescue` and run:
 
