@@ -2,6 +2,9 @@
 
 ArcturusOS is a small educational 32-bit x86 operating system kernel written in C11 and Assembly. It boots through the Multiboot protocol, displays output in VGA text mode, and provides a minimal interactive terminal backed by a polling PS/2 keyboard driver.
 
+## Terminal screen
+![ArcturusOs screenshot](assets/Terminal.png)
+
 ## Features
 
 - Boots in 32-bit protected mode with GRUB/Multiboot support
