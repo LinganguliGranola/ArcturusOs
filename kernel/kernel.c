@@ -4,7 +4,7 @@
 #include "../drivers/io.h"
 #include "../drivers/keyboard.h"
 #include "../terminal/terminal.h"
-#include "../terminal/commands.h"
+#include "../terminal/commands/Commands.h"
 #include "../filesystem/filesystem.h"
 
 void init_serial(void) {
@@ -61,7 +61,8 @@ void kernel_main(void) {
 
     /* Prompt */
     terminal_setcolor(VGA_COLOR_LIGHT_GREY | (VGA_COLOR_BLACK << 4));
-    terminal_writestring("> ");
+    terminal_writestring(commands_current_path());
+    terminal_writestring(" > ");
 
     /* Also print to serial */
     serial_write_string("Hello from ArcturusOs! Serial output works.\r\n");
@@ -106,7 +107,8 @@ void kernel_main(void) {
             input[input_length] = '\0';
             if (input_length != 0 && !commands_execute(input))
                 terminal_writestring("Unknown command\n");
-            terminal_writestring("> ");
+            terminal_writestring(commands_current_path());
+            terminal_writestring(" > ");
             input_length = 0;
             input_cursor = 0;
         } else if (input_length < (int)(sizeof(input) - 1)) {

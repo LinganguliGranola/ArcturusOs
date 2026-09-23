@@ -360,6 +360,24 @@ bool filesystem_list(const char *path) {
     return true;
 }
 
+bool filesystem_is_directory(const char *path) {
+    struct fs_volume *volume;
+    const char *relative;
+    char canonical[FS_PATH_LENGTH];
+    int entry;
+
+    if (string_equal(path, "/") || string_equal(path, "/run") || string_equal(path, "run") || string_equal(path, ""))
+        return true;
+
+    if (!resolve_path(path, &volume, &relative) ||
+        !canonical_path(relative, canonical))
+        return false;
+    if (string_equal(canonical, "/"))
+        return true;
+    entry = find_entry(volume, canonical);
+    return entry >= 0 && volume->entries[entry].type == FS_ENTRY_DIRECTORY;
+}
+
 static bool create_entry(const char *path, uint8_t type) {
     struct fs_volume *volume;
     const char *relative;

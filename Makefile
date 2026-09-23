@@ -6,7 +6,7 @@ CFLAGS=-std=c11 -O2 -Wall -Wextra -ffreestanding -m32 -fno-pie -fno-pic -fno-sta
 ASFLAGS=--32
 LDFLAGS=-ffreestanding -O2 -nostdlib -m32 -no-pie -Wl,--build-id=none
 
-SRCS = $(wildcard kernel/*.c) $(wildcard terminal/*.c) $(wildcard drivers/*.c) $(wildcard filesystem/*.c)
+SRCS = $(wildcard kernel/*.c) $(wildcard terminal/*.c) $(wildcard terminal/commands/*.c) $(wildcard drivers/*.c) $(wildcard filesystem/*.c)
 OBJS = boot.o $(SRCS:.c=.o)
 
 all: arcturus.bin
@@ -34,11 +34,11 @@ disk.img:
 	dd if=/dev/zero of=$@ bs=1M count=16 status=none
 
 run: arcturus.bin disk.img
-	qemu-system-i386 -kernel arcturus.bin -m 128M -serial stdio -drive file=disk.img,format=raw,if=ide
+	qemu-system-i386 -kernel arcturus.bin -m 128M -serial stdio -drive file=disk.img,format=raw,if=ide,media=disk
 
-run-iso: iso
-	qemu-system-i386 -cdrom arcturus.iso -m 128M -serial stdio
+run-iso: iso disk.img
+	qemu-system-i386 -cdrom arcturus.iso -m 128M -serial stdio -drive file=disk.img,format=raw,if=ide,media=disk
 
 clean:
-	rm -f *.o kernel/*.o terminal/*.o drivers/*.o filesystem/*.o arcturus.bin arcturus.iso
+	rm -f *.o kernel/*.o terminal/*.o terminal/commands/*.o drivers/*.o filesystem/*.o arcturus.bin arcturus.iso
 	rm -rf isodir

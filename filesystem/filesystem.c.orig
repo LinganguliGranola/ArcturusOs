@@ -1,0 +1,540 @@
+#include "filesystem.h"
+
+#include "../drivers/ata.h"
+#include "../terminal/terminal.h"
+
+#include <stddef.h>
+#include <stdint.h>
+
+#define FS_MAGIC                 "ARCTFS1"
+#define FS_VERSION               1U
+#define FS_MAX_VOLUMES           ATA_MAX_DEVICES
+#define FS_MAX_ENTRIES           64U
+#define FS_PATH_LENGTH           56U
+#define FS_METADATA_SECTORS      8U
+#define FS_DATA_START            (1U + FS_METADATA_SECTORS)
+#define FS_FILE_SECTORS          32U
+#define FS_FILE_CAPACITY         (FS_FILE_SECTORS * ATA_SECTOR_SIZE)
+
+enum fs_entry_type {
+    FS_ENTRY_FILE = 1,
+    FS_ENTRY_DIRECTORY = 2,
+};
+
+struct fs_superblock {
+    char magic[8];
+    uint32_t version;
+    uint32_t entry_count;
+    uint8_t reserved[ATA_SECTOR_SIZE - 16U];
+};
+
+struct fs_entry {
+    char path[FS_PATH_LENGTH];
+    uint32_t size;
+    uint8_t type;
+    uint8_t used;
+    uint8_t reserved[2];
+};
+
+struct fs_volume {
+    uint8_t disk;
+    uint8_t mounted;
+    struct fs_entry entries[FS_MAX_ENTRIES];
+};
+
+static struct fs_volume volumes[FS_MAX_VOLUMES];
+static uint8_t volume_count;
+static uint8_t exdrive_present;
+
+static void memory_zero(void *buffer, size_t length) {
+    uint8_t *bytes = buffer;
+
+    while (length-- != 0)
+        *bytes++ = 0;
+}
+
+static void memory_copy(void *destination, const void *source, size_t length) {
+    uint8_t *out = destination;
+    const uint8_t *in = source;
+
+    while (length-- != 0)
+        *out++ = *in++;
+}
+
+static size_t string_length(const char *text) {
+    size_t length = 0;
+
+    while (text[length] != '\0')
+        length++;
+    return length;
+}
+
+static int string_equal(const char *left, const char *right) {
+    while (*left != '\0' && *left == *right) {
+        left++;
+        right++;
+    }
+    return *left == *right;
+}
+
+static int string_starts_with(const char *text, const char *prefix) {
+    while (*prefix != '\0') {
+        if (*text++ != *prefix++)
+            return 0;
+    }
+    return 1;
+}
+
+static const char *volume_name(uint8_t volume) {
+    if (volume == 0)
+        return "run/home";
+    if (volume == 1)
+        return "run/media";
+    if (volume == 2)
+        return "run/var";
+    return "run/var_4";
+}
+
+static void volume_name_for_index(uint8_t volume, char *name, size_t capacity) {
+    const char *fixed_name;
+    size_t index = 0;
+
+    if (volume < 3) {
+        fixed_name = volume_name(volume);
+        while (index + 1 < capacity && fixed_name[index] != '\0') {
+            name[index] = fixed_name[index];
+            index++;
+        }
+        name[index] = '\0';
+        return;
+    }
+
+    /* Legacy IDE supplies four slots; keep the naming rule extensible. */
+    fixed_name = "run/var_";
+    while (index + 1 < capacity && fixed_name[index] != '\0') {
+        name[index] = fixed_name[index];
+        index++;
+    }
+    if (index + 1 < capacity)
+        name[index++] = (char)('1' + volume);
+    name[index] = '\0';
+}
+
+static int filesystem_load_volume(struct fs_volume *volume) {
+    struct fs_superblock superblock;
+    uint8_t sector;
+
+    if (!ata_read_sector(volume->disk, 0, &superblock))
+        return 0;
+    if (!string_starts_with(superblock.magic, FS_MAGIC) ||
+        superblock.version != FS_VERSION ||
+        superblock.entry_count != FS_MAX_ENTRIES)
+        return 0;
+
+    for (sector = 0; sector < FS_METADATA_SECTORS; sector++) {
+        if (!ata_read_sector(volume->disk, 1U + sector,
+                             (uint8_t *)volume->entries +
+                             (size_t)sector * ATA_SECTOR_SIZE))
+            return 0;
+    }
+    return 1;
+}
+
+static int filesystem_save_entries(const struct fs_volume *volume) {
+    uint8_t sector;
+
+    for (sector = 0; sector < FS_METADATA_SECTORS; sector++) {
+        if (!ata_write_sector(volume->disk, 1U + sector,
+                              (const uint8_t *)volume->entries +
+                              (size_t)sector * ATA_SECTOR_SIZE))
+            return 0;
+    }
+    return 1;
+}
+
+static int filesystem_format_volume(struct fs_volume *volume) {
+    struct fs_superblock superblock;
+    uint8_t sector;
+
+    if (ata_device_sectors(volume->disk) < FS_DATA_START +
+        FS_MAX_ENTRIES * FS_FILE_SECTORS)
+        return 0;
+    memory_zero(&superblock, sizeof(superblock));
+    memory_copy(superblock.magic, FS_MAGIC, sizeof(FS_MAGIC));
+    superblock.version = FS_VERSION;
+    superblock.entry_count = FS_MAX_ENTRIES;
+    memory_zero(volume->entries, sizeof(volume->entries));
+
+    if (!ata_write_sector(volume->disk, 0, &superblock))
+        return 0;
+    for (sector = 0; sector < FS_METADATA_SECTORS; sector++) {
+        if (!ata_write_sector(volume->disk, 1U + sector,
+                              (const uint8_t *)volume->entries +
+                              (size_t)sector * ATA_SECTOR_SIZE))
+            return 0;
+    }
+    return 1;
+}
+
+void filesystem_initialize(void) {
+    uint8_t disk;
+
+    volume_count = 0;
+    exdrive_present = 0;
+    ata_initialize();
+    for (disk = 0; disk < ata_device_count() && volume_count < FS_MAX_VOLUMES;
+         disk++) {
+        struct fs_volume *volume = &volumes[volume_count];
+
+        volume->disk = disk;
+        volume->mounted = 0;
+        if (filesystem_load_volume(volume) || filesystem_format_volume(volume)) {
+            volume->mounted = 1;
+            volume_count++;
+        }
+    }
+}
+
+void filesystem_attach_exdrive(void) {
+    /* USB mass-storage transport will call this after presenting a block device. */
+    exdrive_present = 1;
+}
+
+/* Resolve a public path into a mounted volume and a canonical volume path. */
+static int resolve_path(const char *path, struct fs_volume **volume_out,
+                        const char **relative_out) {
+    const char *start = path;
+    uint8_t volume;
+
+    if (*start == '/')
+        start++;
+    if (exdrive_present && string_starts_with(start, "run/exdrive") &&
+        (start[11] == '\0' || start[11] == '/'))
+        return 0;
+    for (volume = 0; volume < volume_count; volume++) {
+        char mount_name[16];
+        size_t mount_length;
+
+        volume_name_for_index(volume, mount_name, sizeof(mount_name));
+        mount_length = string_length(mount_name);
+        if (string_starts_with(start, mount_name) &&
+            (start[mount_length] == '\0' || start[mount_length] == '/')) {
+            *volume_out = &volumes[volume];
+            *relative_out = start + mount_length;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int canonical_path(const char *relative, char output[FS_PATH_LENGTH]) {
+    size_t length = 0;
+
+    if (*relative == '\0') {
+        output[0] = '/';
+        output[1] = '\0';
+        return 1;
+    }
+    if (*relative != '/')
+        return 0;
+    while (relative[length] != '\0') {
+        if (length + 1 >= FS_PATH_LENGTH ||
+            (relative[length] == '/' && relative[length + 1] == '/'))
+            return 0;
+        output[length] = relative[length];
+        length++;
+    }
+    if (length > 1 && output[length - 1] == '/')
+        return 0;
+    output[length] = '\0';
+    return 1;
+}
+
+static int find_entry(const struct fs_volume *volume, const char *path) {
+    uint8_t entry;
+
+    for (entry = 0; entry < FS_MAX_ENTRIES; entry++) {
+        if (volume->entries[entry].used &&
+            string_equal(volume->entries[entry].path, path))
+            return entry;
+    }
+    return -1;
+}
+
+static int find_empty_entry(const struct fs_volume *volume) {
+    uint8_t entry;
+
+    for (entry = 0; entry < FS_MAX_ENTRIES; entry++) {
+        if (!volume->entries[entry].used)
+            return entry;
+    }
+    return -1;
+}
+
+static int parent_exists(const struct fs_volume *volume, const char *path) {
+    char parent[FS_PATH_LENGTH];
+    size_t slash = 0;
+    size_t index = 1;
+    int entry;
+
+    while (path[index] != '\0') {
+        if (path[index] == '/')
+            slash = index;
+        index++;
+    }
+    if (slash == 0)
+        return 1;
+    memory_copy(parent, path, slash);
+    parent[slash] = '\0';
+    entry = find_entry(volume, parent);
+    return entry >= 0 && volume->entries[entry].type == FS_ENTRY_DIRECTORY;
+}
+
+static int is_direct_child(const char *parent, const char *path) {
+    const char *tail;
+
+    if (string_equal(parent, "/")) {
+        if (path[0] != '/')
+            return 0;
+        tail = path + 1;
+    } else {
+        size_t parent_length = string_length(parent);
+
+        if (!string_starts_with(path, parent) || path[parent_length] != '/')
+            return 0;
+        tail = path + parent_length + 1;
+    }
+    while (*tail != '\0') {
+        if (*tail == '/')
+            return 0;
+        tail++;
+    }
+    return 1;
+}
+
+static void print_name(const char *path) {
+    const char *name = path;
+
+    while (*path != '\0') {
+        if (*path == '/')
+            name = path + 1;
+        path++;
+    }
+    terminal_writestring(name);
+}
+
+bool filesystem_list(const char *path) {
+    struct fs_volume *volume;
+    const char *relative;
+    char canonical[FS_PATH_LENGTH];
+    int entry;
+    uint8_t index;
+    uint8_t found = 0;
+
+    if (!resolve_path(path, &volume, &relative) ||
+        !canonical_path(relative, canonical))
+        return false;
+    entry = find_entry(volume, canonical);
+    if (entry >= 0 && volume->entries[entry].type == FS_ENTRY_FILE) {
+        print_name(canonical);
+        terminal_putchar('\n');
+        return true;
+    }
+    if (!string_equal(canonical, "/") &&
+        (entry < 0 || volume->entries[entry].type != FS_ENTRY_DIRECTORY))
+        return false;
+
+    for (index = 0; index < FS_MAX_ENTRIES; index++) {
+        const struct fs_entry *item = &volume->entries[index];
+
+        if (item->used && is_direct_child(canonical, item->path)) {
+            print_name(item->path);
+            if (item->type == FS_ENTRY_DIRECTORY)
+                terminal_putchar('/');
+            terminal_putchar('\n');
+            found = 1;
+        }
+    }
+    if (!found)
+        terminal_writestring("(empty)\n");
+    return true;
+}
+
+bool filesystem_is_directory(const char *path) {
+    struct fs_volume *volume;
+    const char *relative;
+    char canonical[FS_PATH_LENGTH];
+    int entry;
+
+    if (!resolve_path(path, &volume, &relative) ||
+        !canonical_path(relative, canonical))
+        return false;
+    if (string_equal(canonical, "/"))
+        return true;
+    entry = find_entry(volume, canonical);
+    return entry >= 0 && volume->entries[entry].type == FS_ENTRY_DIRECTORY;
+}
+
+static bool create_entry(const char *path, uint8_t type) {
+    struct fs_volume *volume;
+    const char *relative;
+    char canonical[FS_PATH_LENGTH];
+    int slot;
+
+    if (!resolve_path(path, &volume, &relative) ||
+        !canonical_path(relative, canonical) || string_equal(canonical, "/") ||
+        find_entry(volume, canonical) >= 0 || !parent_exists(volume, canonical))
+        return false;
+    slot = find_empty_entry(volume);
+    if (slot < 0)
+        return false;
+    memory_zero(&volume->entries[slot], sizeof(volume->entries[slot]));
+    memory_copy(volume->entries[slot].path, canonical, string_length(canonical) + 1);
+    volume->entries[slot].type = type;
+    volume->entries[slot].used = 1;
+    return filesystem_save_entries(volume);
+}
+
+bool filesystem_make_directory(const char *path) {
+    return create_entry(path, FS_ENTRY_DIRECTORY);
+}
+
+bool filesystem_create_file(const char *path) {
+    return create_entry(path, FS_ENTRY_FILE);
+}
+
+bool filesystem_write_file(const char *path, const char *text, bool append) {
+    struct fs_volume *volume;
+    const char *relative;
+    char canonical[FS_PATH_LENGTH];
+    uint8_t data[ATA_SECTOR_SIZE];
+    size_t text_length = string_length(text);
+    size_t offset = 0;
+    size_t text_offset = 0;
+    int entry;
+    uint8_t sector;
+
+    if (!resolve_path(path, &volume, &relative) ||
+        !canonical_path(relative, canonical))
+        return false;
+    entry = find_entry(volume, canonical);
+    if (entry < 0) {
+        if (!create_entry(path, FS_ENTRY_FILE))
+            return false;
+        entry = find_entry(volume, canonical);
+    }
+    if (volume->entries[entry].type != FS_ENTRY_FILE)
+        return false;
+    if (append) {
+        offset = volume->entries[entry].size;
+        if (offset > FS_FILE_CAPACITY)
+            return false;
+    }
+    if (text_length > FS_FILE_CAPACITY - offset)
+        return false;
+
+    /* Rewrite only sectors touched by this request, keeping kernel stack use small. */
+    for (sector = (uint8_t)(offset / ATA_SECTOR_SIZE);
+         sector < FS_FILE_SECTORS && text_offset < text_length; sector++) {
+        size_t sector_offset = sector == offset / ATA_SECTOR_SIZE ?
+                               offset % ATA_SECTOR_SIZE : 0;
+        size_t available = ATA_SECTOR_SIZE - sector_offset;
+        size_t amount = text_length - text_offset;
+
+        if (amount > available)
+            amount = available;
+        if (append) {
+            if (!ata_read_sector(volume->disk,
+                                 FS_DATA_START + (uint32_t)entry * FS_FILE_SECTORS + sector,
+                                 data))
+                return false;
+        } else {
+            memory_zero(data, sizeof(data));
+        }
+        memory_copy(data + sector_offset, text + text_offset, amount);
+        if (!ata_write_sector(volume->disk,
+                              FS_DATA_START + (uint32_t)entry * FS_FILE_SECTORS + sector,
+                              data))
+            return false;
+        text_offset += amount;
+    }
+    volume->entries[entry].size = (uint32_t)(offset + text_length);
+    return filesystem_save_entries(volume);
+}
+
+bool filesystem_read_file(const char *path) {
+    struct fs_volume *volume;
+    const char *relative;
+    char canonical[FS_PATH_LENGTH];
+    uint8_t data[ATA_SECTOR_SIZE];
+    uint32_t remaining;
+    uint8_t sector;
+    int entry;
+
+    if (!resolve_path(path, &volume, &relative) ||
+        !canonical_path(relative, canonical))
+        return false;
+    entry = find_entry(volume, canonical);
+    if (entry < 0 || volume->entries[entry].type != FS_ENTRY_FILE ||
+        volume->entries[entry].size > FS_FILE_CAPACITY)
+        return false;
+    remaining = volume->entries[entry].size;
+    for (sector = 0; sector < FS_FILE_SECTORS && remaining != 0; sector++) {
+        uint16_t index;
+        uint16_t limit = remaining > ATA_SECTOR_SIZE ? ATA_SECTOR_SIZE : (uint16_t)remaining;
+
+        if (!ata_read_sector(volume->disk,
+                             FS_DATA_START + (uint32_t)entry * FS_FILE_SECTORS + sector,
+                             data))
+            return false;
+        for (index = 0; index < limit; index++)
+            terminal_putchar((char)data[index]);
+        remaining -= limit;
+    }
+    terminal_putchar('\n');
+    return true;
+}
+
+bool filesystem_remove(const char *path) {
+    struct fs_volume *volume;
+    const char *relative;
+    char canonical[FS_PATH_LENGTH];
+    int entry;
+    uint8_t index;
+
+    if (!resolve_path(path, &volume, &relative) ||
+        !canonical_path(relative, canonical) || string_equal(canonical, "/"))
+        return false;
+    entry = find_entry(volume, canonical);
+    if (entry < 0)
+        return false;
+    if (volume->entries[entry].type == FS_ENTRY_DIRECTORY) {
+        for (index = 0; index < FS_MAX_ENTRIES; index++) {
+            if (volume->entries[index].used &&
+                is_direct_child(canonical, volume->entries[index].path))
+                return false;
+        }
+    }
+    memory_zero(&volume->entries[entry], sizeof(volume->entries[entry]));
+    return filesystem_save_entries(volume);
+}
+
+void filesystem_print_mounts(void) {
+    uint8_t volume;
+
+    if (volume_count == 0 && !exdrive_present) {
+        terminal_writestring("No ATA disks found.\n");
+        return;
+    }
+    for (volume = 0; volume < volume_count; volume++) {
+        char mount_name[16];
+
+        volume_name_for_index(volume, mount_name, sizeof(mount_name));
+        terminal_writestring(mount_name);
+        terminal_writestring("  (disk ");
+        terminal_putchar((char)('0' + volumes[volume].disk + 1));
+        terminal_writestring(")\n");
+    }
+    if (exdrive_present)
+        terminal_writestring("run/exdrive  (USB flash drive)\n");
+}

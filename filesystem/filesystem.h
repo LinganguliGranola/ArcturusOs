@@ -12,6 +12,7 @@ void filesystem_attach_exdrive(void);
 
 /* Terminal-facing filesystem operations.  Paths begin with run/<mount>. */
 bool filesystem_list(const char *path);
+bool filesystem_is_directory(const char *path);
 bool filesystem_make_directory(const char *path);
 bool filesystem_create_file(const char *path);
 bool filesystem_write_file(const char *path, const char *text, bool append);

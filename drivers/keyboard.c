@@ -33,10 +33,30 @@ static const char scancode_map[128] = {
     0  // Delete
 };
 
+static const char shift_scancode_map[128] = {
+    0, 27, '!', '@', '#', '$', '%', '^', '&', '*',
+    '(', ')', '_', '+', '\b', '\t', 'Q', 'W', 'E', 'R',
+    'T', 'Y', 'U', 'I', 'O', 'P', '{', '}', '\n', 0,
+    'A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', ':',
+    '"', '~', 0, '|', 'Z', 'X', 'C', 'V', 'B', 'N',
+    'M', '<', '>', '?', 0, '*', 0, ' ', 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, '-', 0, 0, 0, '+', 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+};
+
 void keyboard_init(void) {
     // In polling mode, usually no complex init is strictly necessary for PS/2,
     // assuming the BIOS/bootloader left it ready for read.
 }
+
+static int lshift_down = 0;
+static int rshift_down = 0;
+static int caps_lock = 0;
 
 int keyboard_read_key(void) {
     uint8_t extended = 0;
@@ -62,13 +82,49 @@ int keyboard_read_key(void) {
                 continue;
             }
 
-            // If the highest bit is set, it's a key release (break code), ignore it
+            // If the highest bit is set, it's a key release (break code)
             if (scancode & 0x80) {
+                uint8_t released_code = scancode & ~0x80;
+                if (released_code == 0x2A) {
+                    lshift_down = 0;
+                } else if (released_code == 0x36) {
+                    rshift_down = 0;
+                }
+                continue;
+            }
+            
+            // Key press
+            if (scancode == 0x2A) {
+                lshift_down = 1;
+                continue;
+            } else if (scancode == 0x36) {
+                rshift_down = 1;
+                continue;
+            } else if (scancode == 0x3A) {
+                caps_lock ^= 1;
                 continue;
             }
             
             if (scancode < 128) {
-                return scancode_map[scancode];
+                char c = scancode_map[scancode];
+                int is_shift = lshift_down || rshift_down;
+                
+                // Alphabetic characters logic
+                if (c >= 'a' && c <= 'z') {
+                    if (is_shift ^ caps_lock) {
+                        return shift_scancode_map[scancode];
+                    } else {
+                        return scancode_map[scancode];
+                    }
+                } 
+                // Other characters
+                else {
+                    if (is_shift) {
+                        return shift_scancode_map[scancode];
+                    } else {
+                        return scancode_map[scancode];
+                    }
+                }
             }
         }
     }

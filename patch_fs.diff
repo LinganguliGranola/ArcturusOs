@@ -1,0 +1,12 @@
+--- filesystem/filesystem.c
++++ filesystem/filesystem.c
+@@ -361,6 +361,9 @@
+     char canonical[FS_PATH_LENGTH];
+     int entry;
+ 
++    if (string_equal(path, "/") || string_equal(path, "/run") || string_equal(path, "run") || string_equal(path, ""))
++        return true;
++
+     if (!resolve_path(path, &volume, &relative) ||
+         !canonical_path(relative, canonical))
+         return false;

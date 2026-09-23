@@ -1,0 +1,11 @@
+--- terminal/commands/DirectoryCommands.c
++++ terminal/commands/DirectoryCommands.c
+@@ -169,8 +169,7 @@
+             return true;
+         }
+-        if (!filesystem_is_directory(path)) {
+-            !resolve_path(argument, path) || !filesystem_is_directory(path)) {
++        if (!filesystem_is_directory(path)) {
+             terminal_writestring("cd: directory not found\n");
+             return true;
+         }
