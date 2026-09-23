@@ -1,1 +1,7 @@
 disk.img
+
+*.o
+*.bin
+*.img
+a.out
+serial.out
