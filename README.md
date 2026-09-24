@@ -17,7 +17,7 @@ ArcturusOS is a small educational 32-bit x86 operating system kernel written in 
 - Built-in commands:
   - `time` — displays the current CMOS RTC time as `HH:MM:SS`
   - `uptime` — displays elapsed time since the kernel booted
-  - `mkdir`, `touch`, and `cd` — basic relative-path filesystem navigation
+  - `mkdir`, `touch`, `cd`, and `ls` — basic relative-path filesystem navigation
     and creation, starting in `/run/home`
 
 ## Build

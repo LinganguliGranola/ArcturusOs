@@ -1,11 +1,20 @@
 --- terminal/commands/DirectoryCommands.c
 +++ terminal/commands/DirectoryCommands.c
-@@ -169,8 +169,7 @@
-             return true;
+@@ -142,6 +142,19 @@
          }
--        if (!filesystem_is_directory(path)) {
--            !resolve_path(argument, path) || !filesystem_is_directory(path)) {
-+        if (!filesystem_is_directory(path)) {
-             terminal_writestring("cd: directory not found\n");
-             return true;
-         }
+         return true;
+     }
++    if (starts_with(command, "ls ") || starts_with(command, "ls")) {
++        argument_status = read_optional_argument(command + 2, argument,
++                                                 sizeof(argument));
++        if (argument_status == 1) {
++            if (!filesystem_list(current_path))
++                terminal_writestring("ls: directory not found\n");
++        } else if (argument_status != 2 || !resolve_path(argument, path) || !filesystem_list(path)) {
++            terminal_writestring("ls: directory not found\n");
++        }
++        return true;
++    }
+     if (starts_with(command, "cd ") || starts_with(command, "cd")) {
+         argument_status = read_optional_argument(command + 2, argument,
+                                                  sizeof(argument));
