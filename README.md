@@ -19,6 +19,7 @@ ArcturusOS is a small educational 32-bit x86 operating system kernel written in 
   - `uptime` — displays elapsed time since the kernel booted
   - `mkdir`, `touch`, `cd`, and `ls` — basic relative-path filesystem navigation
     and creation, starting in `/run/home`
+  - `write` — Writes text to a file, usage: write ~/text.txt >> "Hello ArcturusOs".
 
 ## Build
 
