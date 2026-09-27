@@ -214,6 +214,13 @@ bool directory_commands_execute(const char *command) {
     }
     return true;
   }
+  if (starts_with(command, "cat ")) {
+    if (read_optional_argument(command + 4, argument, sizeof(argument)) != 2 ||
+        !resolve_path(argument, path) || !filesystem_read_file(path)) {
+      terminal_writestring("cat: could not read file\n");
+    }
+    return true;
+  }
   if (starts_with(command, "ls ") || starts_with(command, "ls")) {
     argument_status =
         read_optional_argument(command + 2, argument, sizeof(argument));

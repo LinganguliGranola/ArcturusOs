@@ -20,6 +20,7 @@ ArcturusOS is a small educational 32-bit x86 operating system kernel written in 
   - `mkdir`, `touch`, `cd`, and `ls` — basic relative-path filesystem navigation
     and creation, starting in `/run/home`
   - `write` — Writes text to a file, usage: write ~/text.txt >> "Hello ArcturusOs".
+  - `cat` — displays the contents of the file.
 
 ## Build
 
