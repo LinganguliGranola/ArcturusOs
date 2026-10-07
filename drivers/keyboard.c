@@ -57,6 +57,11 @@ void keyboard_init(void) {
 static int lshift_down = 0;
 static int rshift_down = 0;
 static int caps_lock = 0;
+static int ctrl_down = 0;
+
+int keyboard_ctrl_held(void) {
+    return ctrl_down;
+}
 
 int keyboard_read_key(void) {
     uint8_t extended = 0;
@@ -75,10 +80,24 @@ int keyboard_read_key(void) {
                 extended = 0;
                 if (scancode & 0x80)
                     continue;
+                if (scancode == 0x48)
+                    return KEYBOARD_KEY_UP;
                 if (scancode == 0x4B)
                     return KEYBOARD_KEY_LEFT;
                 if (scancode == 0x4D)
                     return KEYBOARD_KEY_RIGHT;
+                if (scancode == 0x50)
+                    return KEYBOARD_KEY_DOWN;
+                if (scancode == 0x47)
+                    return KEYBOARD_KEY_HOME;
+                if (scancode == 0x4F)
+                    return KEYBOARD_KEY_END;
+                if (scancode == 0x49)
+                    return KEYBOARD_KEY_PGUP;
+                if (scancode == 0x51)
+                    return KEYBOARD_KEY_PGDN;
+                if (scancode == 0x53)
+                    return KEYBOARD_KEY_DELETE;
                 continue;
             }
 
@@ -89,10 +108,12 @@ int keyboard_read_key(void) {
                     lshift_down = 0;
                 } else if (released_code == 0x36) {
                     rshift_down = 0;
+                } else if (released_code == 0x1D) {
+                    ctrl_down = 0;
                 }
                 continue;
             }
-            
+
             // Key press
             if (scancode == 0x2A) {
                 lshift_down = 1;
@@ -102,6 +123,9 @@ int keyboard_read_key(void) {
                 continue;
             } else if (scancode == 0x3A) {
                 caps_lock ^= 1;
+                continue;
+            } else if (scancode == 0x1D) {
+                ctrl_down = 1;
                 continue;
             }
             

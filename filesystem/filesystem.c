@@ -498,6 +498,109 @@ bool filesystem_read_file(const char *path) {
     return true;
 }
 
+bool filesystem_file_exists(const char *path) {
+    struct fs_volume *volume;
+    const char *relative;
+    char canonical[FS_PATH_LENGTH];
+
+    if (!resolve_path(path, &volume, &relative) ||
+        !canonical_path(relative, canonical))
+        return false;
+    return find_entry(volume, canonical) >= 0;
+}
+
+uint32_t filesystem_file_size(const char *path) {
+    struct fs_volume *volume;
+    const char *relative;
+    char canonical[FS_PATH_LENGTH];
+    int entry;
+
+    if (!resolve_path(path, &volume, &relative) ||
+        !canonical_path(relative, canonical))
+        return 0;
+    entry = find_entry(volume, canonical);
+    if (entry < 0 || volume->entries[entry].type != FS_ENTRY_FILE)
+        return 0;
+    return volume->entries[entry].size;
+}
+
+bool filesystem_load_file_data(const char *path, uint8_t *buffer,
+                               uint32_t capacity, uint32_t *size_out) {
+    struct fs_volume *volume;
+    const char *relative;
+    char canonical[FS_PATH_LENGTH];
+    uint8_t data[ATA_SECTOR_SIZE];
+    uint32_t remaining;
+    uint8_t sector;
+    uint32_t offset = 0;
+    int entry;
+
+    if (!resolve_path(path, &volume, &relative) ||
+        !canonical_path(relative, canonical))
+        return false;
+    entry = find_entry(volume, canonical);
+    if (entry < 0 || volume->entries[entry].type != FS_ENTRY_FILE ||
+        volume->entries[entry].size > FS_FILE_CAPACITY ||
+        volume->entries[entry].size > capacity)
+        return false;
+    remaining = volume->entries[entry].size;
+    *size_out = remaining;
+    for (sector = 0; sector < FS_FILE_SECTORS && remaining != 0; sector++) {
+        uint32_t amount = remaining > ATA_SECTOR_SIZE ?
+                          ATA_SECTOR_SIZE : remaining;
+
+        if (!ata_read_sector(volume->disk,
+                             FS_DATA_START + (uint32_t)entry * FS_FILE_SECTORS +
+                             sector, data))
+            return false;
+        memory_copy(buffer + offset, data, amount);
+        offset += amount;
+        remaining -= amount;
+    }
+    return true;
+}
+
+bool filesystem_save_file_data(const char *path, const uint8_t *buffer,
+                               uint32_t size) {
+    struct fs_volume *volume;
+    const char *relative;
+    char canonical[FS_PATH_LENGTH];
+    uint8_t data[ATA_SECTOR_SIZE];
+    uint32_t offset = 0;
+    uint8_t sector;
+    int entry;
+
+    if (size > FS_FILE_CAPACITY)
+        return false;
+    if (!resolve_path(path, &volume, &relative) ||
+        !canonical_path(relative, canonical))
+        return false;
+    entry = find_entry(volume, canonical);
+    if (entry < 0) {
+        if (!create_entry(path, FS_ENTRY_FILE))
+            return false;
+        entry = find_entry(volume, canonical);
+    }
+    if (volume->entries[entry].type != FS_ENTRY_FILE)
+        return false;
+
+    for (sector = 0; sector < FS_FILE_SECTORS && offset < size; sector++) {
+        uint32_t amount = size - offset;
+
+        if (amount > ATA_SECTOR_SIZE)
+            amount = ATA_SECTOR_SIZE;
+        memory_zero(data, sizeof(data));
+        memory_copy(data, buffer + offset, amount);
+        if (!ata_write_sector(volume->disk,
+                              FS_DATA_START + (uint32_t)entry * FS_FILE_SECTORS +
+                              sector, data))
+            return false;
+        offset += amount;
+    }
+    volume->entries[entry].size = size;
+    return filesystem_save_entries(volume);
+}
+
 bool filesystem_remove(const char *path) {
     struct fs_volume *volume;
     const char *relative;

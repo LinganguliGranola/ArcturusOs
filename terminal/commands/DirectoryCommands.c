@@ -1,6 +1,7 @@
 #include "DirectoryCommands.h"
 
 #include "../../filesystem/filesystem.h"
+#include "../../tbos/tbos.h"
 #include "../terminal.h"
 
 #include <stddef.h>
@@ -256,6 +257,15 @@ bool directory_commands_execute(const char *command) {
       if (path[index] == '\0')
         break;
     }
+    return true;
+  }
+  if (starts_with(command, "tbos ")) {
+    if (read_optional_argument(command + 5, argument, sizeof(argument)) != 2 ||
+        !resolve_path(argument, path)) {
+      terminal_writestring("tbos: invalid path\n");
+      return true;
+    }
+    tbos_open(path);
     return true;
   }
   return false;

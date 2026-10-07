@@ -20,4 +20,13 @@ bool filesystem_read_file(const char *path);
 bool filesystem_remove(const char *path);
 void filesystem_print_mounts(void);
 
+/* Buffer-oriented file operations for in-memory editing. */
+#define FS_MAX_FILE_SIZE (32U * 512U)
+bool filesystem_file_exists(const char *path);
+uint32_t filesystem_file_size(const char *path);
+bool filesystem_load_file_data(const char *path, uint8_t *buffer,
+                               uint32_t capacity, uint32_t *size_out);
+bool filesystem_save_file_data(const char *path, const uint8_t *buffer,
+                               uint32_t size);
+
 #endif
