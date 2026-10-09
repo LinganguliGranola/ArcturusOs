@@ -92,23 +92,37 @@ void terminal_move_cursor_right(void) {
 	update_cursor(terminal_column, terminal_row);
 }
 
+static void terminal_scroll(void) {
+	for (size_t y = 1; y < VGA_HEIGHT; y++) {
+		for (size_t x = 0; x < VGA_WIDTH; x++) {
+			terminal_buffer[(y - 1) * VGA_WIDTH + x] =
+				terminal_buffer[y * VGA_WIDTH + x];
+		}
+	}
+	for (size_t x = 0; x < VGA_WIDTH; x++)
+		terminal_buffer[(VGA_HEIGHT - 1) * VGA_WIDTH + x] =
+			vga_entry(' ', terminal_color);
+}
+
 void terminal_putchar(char c) {
 	if (c == '\n') {
 		terminal_column = 0;
 		if (++terminal_row == VGA_HEIGHT) {
-			terminal_row = 0;
+			terminal_scroll();
+			terminal_row = VGA_HEIGHT - 1;
 		}
-        update_cursor(terminal_column, terminal_row);
+		update_cursor(terminal_column, terminal_row);
 		return;
 	}
 	terminal_putentryat(c, terminal_color, terminal_column, terminal_row);
 	if (++terminal_column == VGA_WIDTH) {
 		terminal_column = 0;
 		if (++terminal_row == VGA_HEIGHT) {
-			terminal_row = 0;
+			terminal_scroll();
+			terminal_row = VGA_HEIGHT - 1;
 		}
 	}
-    update_cursor(terminal_column, terminal_row);
+	update_cursor(terminal_column, terminal_row);
 }
 
 void terminal_write(const char* data, size_t size) {

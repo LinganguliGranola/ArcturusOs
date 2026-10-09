@@ -268,5 +268,12 @@ bool directory_commands_execute(const char *command) {
     tbos_open(path);
     return true;
   }
+  if (starts_with(command, "rm ")) {
+    if (read_optional_argument(command + 3, argument, sizeof(argument)) != 2 ||
+        !resolve_path(argument, path) || !filesystem_remove(path)) {
+      terminal_writestring("rm: could not remove\n");
+    }
+    return true;
+  }
   return false;
 }
