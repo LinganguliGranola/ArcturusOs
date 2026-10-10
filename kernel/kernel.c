@@ -76,7 +76,11 @@ void kernel_main(void) {
         char c = (char)key;
         if (key == KEYBOARD_KEY_NONE) continue;
 
-        if (key == KEYBOARD_KEY_LEFT) {
+        if (key == KEYBOARD_KEY_UP && keyboard_ctrl_held()) {
+            terminal_scroll_view_up();
+        } else if (key == KEYBOARD_KEY_DOWN && keyboard_ctrl_held()) {
+            terminal_scroll_view_down();
+        } else if (key == KEYBOARD_KEY_LEFT) {
             if (input_cursor > 0) {
                 terminal_move_cursor_left();
                 input_cursor--;

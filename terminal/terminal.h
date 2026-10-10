@@ -38,4 +38,8 @@ void update_cursor(int x, int y);
 
 void terminal_backspace(void);
 
+void terminal_scroll_view_up(void);
+void terminal_scroll_view_down(void);
+int  terminal_is_scrolled(void);
+
 #endif
